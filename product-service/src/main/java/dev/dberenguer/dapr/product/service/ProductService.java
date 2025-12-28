@@ -12,6 +12,8 @@ import org.springframework.core.convert.ConversionService;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,29 +33,68 @@ public class ProductService {
     private String daprStateStoreName;
 
     @PostConstruct
-    public void init(){
-        this.daprClient.deleteState(this.daprStateStoreName, CACHE_NAME_PRODUCT_ALL);
+    
+    public void init() {
+        // Vérifier si la clé existe
+        State<List> state = daprClient.getState(daprStateStoreName, CACHE_NAME_PRODUCT_ALL, List.class).block();
 
-        final List<Product> products = List.of(
-                Product.builder().id(UUID.randomUUID()).code("1").name("computer").price(999.99).build(),
-                Product.builder().id(UUID.randomUUID()).code("2").name("mobile").price(499.90).build(),
-                Product.builder().id(UUID.randomUUID()).code("3").name("keyboard").price(49.95).build()
-        );
+        if (state == null || state.getValue() == null || state.getValue().isEmpty()) {
+            List<Product> products = List.of(
+                    Product.builder().id(UUID.randomUUID()).code("1").name("computer").price(999.99).build(),
+                    Product.builder().id(UUID.randomUUID()).code("2").name("mobile").price(499.90).build(),
+                    Product.builder().id(UUID.randomUUID()).code("3").name("keyboard").price(49.95).build()
+            );
 
-        this.daprClient.saveState(this.daprStateStoreName, CACHE_NAME_PRODUCT_ALL, products).block();
-        log.info("Saved state products: {}", products);
+            daprClient.saveState(daprStateStoreName, CACHE_NAME_PRODUCT_ALL, products).block();
+            log.info("Saved initial products: {}", products);
+        } else {
+            log.info("Products already exist in state store, skipping initialization.");
+        }
     }
-
+    
     public List<ProductDto> findAll() {
-        final State<List> stateProducts = this.daprClient.getState(this.daprStateStoreName, CACHE_NAME_PRODUCT_ALL, List.class).block();
-        final List<Product> products = stateProducts.getValue().stream()
-                .map(stateProduct -> this.objectMapper.convertValue(stateProduct, Product.class))
-                .toList();
+        final State<List> stateProducts = this.daprClient
+                .getState(this.daprStateStoreName, CACHE_NAME_PRODUCT_ALL, List.class)
+                .block();
+
+        List<Product> products = stateProducts.getValue().stream().map(p -> objectMapper.convertValue(p, Product.class)).toList();
+
         log.info("Getting state products: {}", products);
 
+        // Conversion Entity -> DTO
         return products.stream()
-                .map(product -> this.conversionService.convert(product, ProductDto.class))
+                .map(p -> conversionService.convert(p, ProductDto.class))
                 .toList();
     }
 
+    public ProductDto create(ProductDto productDto) {
+    // Récupérer la liste des Product existants
+    final State<List> stateProducts = daprClient
+            .getState(daprStateStoreName, CACHE_NAME_PRODUCT_ALL, List.class)
+            .block();
+
+    List<Product> products = new ArrayList<>();
+    if (stateProducts != null && stateProducts.getValue() != null) {
+        for (Object obj : stateProducts.getValue()) {
+            products.add(objectMapper.convertValue(obj, Product.class));
+        }
+    }
+
+    // Créer la nouvelle Entity
+    Product newProduct = Product.builder()
+            .id(UUID.randomUUID())
+            .code(productDto.getCode())
+            .name(productDto.getName())
+            .price(productDto.getPrice())
+            .build();
+
+    // Ajouter et sauvegarder
+    products.add(newProduct);
+    daprClient.saveState(daprStateStoreName, CACHE_NAME_PRODUCT_ALL, products).block();
+
+    log.info("Product created: {}", newProduct);
+
+    // Retourner DTO pour l'API
+    return conversionService.convert(newProduct, ProductDto.class);
+}
 }
