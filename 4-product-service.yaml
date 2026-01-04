@@ -2,8 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: product-service
-  labels:
-    app: product-service
 spec:
   replicas: 1
   selector:
@@ -17,7 +15,7 @@ spec:
         dapr.io/enabled: "true"
         dapr.io/app-id: "product-service"
         dapr.io/app-port: "8081"
-        dapr.io/log-level: "info"
+        dapr.io/config: "dapr-config"
     spec:
       containers:
       - name: product-service
@@ -25,9 +23,7 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 8081
-        env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: "kubernetes"
+      
 ---
 apiVersion: v1
 kind: Service
@@ -39,4 +35,4 @@ spec:
   ports:
   - port: 8081
     targetPort: 8081
-  type: ClusterIP
+  type: LoadBalancer
